@@ -240,3 +240,84 @@ def check_license():
     for a in data.get("agents", []):
         console.print(f"    • {a}")
     console.print()
+
+
+@app.command("deploy")
+def deploy_from_catalog(
+    agent_id: str = typer.Argument(help="Agent ID to deploy from catalog"),
+    version: str = typer.Option("latest", "--version", "-v", help="Version to deploy"),
+    domain: str = typer.Option("", "--domain", "-d", help="Override domain assignment"),
+):
+    """Deploy an agent from catalog to the platform (server-side).
+
+    Triggers async deployment — the platform handles container provisioning,
+    registration, and configuration. Poll status with: prox catalog status <agent_id>
+    """
+    from ..api import gateway_post, gateway_get, APIError
+    import time as _time
+
+    console.print(f"\n[bold]Deploying from catalog:[/bold] {agent_id} v{version}\n")
+
+    try:
+        result = gateway_post(f"/catalog/deploy/{agent_id}", {
+            "version": version,
+            "domain": domain,
+        })
+        deployment_id = result.get("deployment_id")
+        console.print(f"  [green]✓[/green] Deployment triggered: {deployment_id}")
+        console.print(f"  Polling status...\n")
+
+        # Poll until complete or failed
+        for _ in range(120):  # 4 minutes max
+            _time.sleep(2)
+            try:
+                status = gateway_get(f"/catalog/deploy/{agent_id}/status")
+                step = status.get("step", 0)
+                total = status.get("total_steps", 14)
+                state = status.get("status", "unknown")
+                message = status.get("message", "")
+
+                console.print(f"  [{step}/{total}] {state}: {message}", end="\r")
+
+                if state in ("deployed", "upgraded"):
+                    console.print(f"\n\n  [green]✓[/green] {message}")
+                    console.print(f"  Agent deployed as draft. Publish with: prox agent publish {agent_id}")
+                    return
+                elif state == "failed":
+                    console.print(f"\n\n  [red]✗[/red] Deployment failed: {message}")
+                    raise typer.Exit(1)
+            except APIError:
+                pass
+
+        console.print(f"\n\n  [yellow]⚠[/yellow] Deployment timed out. Check: prox catalog status {agent_id}")
+
+    except APIError as e:
+        console.print(f"  [red]✗[/red] {e.detail}")
+        raise typer.Exit(1)
+
+
+@app.command("status")
+def deployment_status(
+    agent_id: str = typer.Argument(help="Agent ID to check deployment status"),
+):
+    """Check deployment status for an agent."""
+    from ..api import gateway_get, APIError
+
+    try:
+        status = gateway_get(f"/catalog/deploy/{agent_id}/status")
+        state = status.get("status", "unknown")
+        step = status.get("step", 0)
+        total = status.get("total_steps", 14)
+        message = status.get("message", "")
+        started = status.get("started_at", "")
+
+        console.print(f"\n  Agent:   {agent_id}")
+        console.print(f"  Status:  {state}")
+        console.print(f"  Step:    {step}/{total}")
+        console.print(f"  Message: {message}")
+        if started:
+            console.print(f"  Started: {started}")
+        console.print()
+    except APIError as e:
+        console.print(f"[red]Error:[/red] {e.detail}")
+        raise typer.Exit(1)
