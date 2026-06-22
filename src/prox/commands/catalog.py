@@ -246,50 +246,131 @@ def check_license():
 def deploy_from_catalog(
     agent_id: str = typer.Argument(help="Agent ID to deploy from catalog"),
     version: str = typer.Option("latest", "--version", "-v", help="Version to deploy"),
-    domain: str = typer.Option("", "--domain", "-d", help="Override domain assignment"),
+    domain: str = typer.Option("", "--domain", "-d", help="Domain assignment (skips prompt)"),
+    model: str = typer.Option("", "--model", "-m", help="LLM model (skips prompt)"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt"),
 ):
-    """Deploy an agent from catalog to the platform (server-side).
+    """Deploy an agent from catalog to the platform.
 
-    Triggers async deployment — the platform handles container provisioning,
-    registration, and configuration. Poll status with: prox catalog status <agent_id>
+    Interactive provisioning — prompts for domain, model, and data sources.
+    The platform handles container creation, registration, and configuration.
     """
-    from ..api import gateway_post, gateway_get, APIError
+    from ..api import gateway_post, gateway_get, catalog_get, APIError
     import time as _time
 
-    console.print(f"\n[bold]Deploying from catalog:[/bold] {agent_id} v{version}\n")
+    # Fetch agent metadata from catalog
+    try:
+        agent_meta = catalog_get(f"/catalog/agents/{agent_id}")
+    except APIError as e:
+        console.print(f"[red]Error:[/red] {e.detail}")
+        raise typer.Exit(1)
+
+    agent_name = agent_meta.get("name", agent_id)
+    agent_codename = agent_meta.get("codename", "")
+    suggested_domain = agent_meta.get("domain", "general")
+    resolved_version = version if version != "latest" else agent_meta.get("latest_version", "latest")
+
+    console.print(f"\n[bold]{agent_name}[/bold] ({agent_codename}) v{resolved_version}")
+    console.print(f"[dim]{agent_meta.get('description', agent_meta.get('tagline', ''))}[/dim]\n")
+
+    # --- Domain selection ---
+    if not domain:
+        # Fetch existing domains from platform
+        existing_domains = []
+        try:
+            domains_res = gateway_get("/build/domains")
+            existing_domains = [d.get("id", d.get("name", "")) for d in domains_res.get("domains", [])]
+        except APIError:
+            pass
+
+        if existing_domains:
+            console.print(f"  Existing domains: {', '.join(existing_domains)}")
+
+        domain = typer.prompt(
+            f"  Domain",
+            default=suggested_domain,
+        )
+
+    # --- Model selection ---
+    if not model:
+        # Fetch available models from platform
+        available_models = []
+        try:
+            models_res = gateway_get("/build/models")
+            available_models = [m.get("id", "") for m in models_res.get("models", [])]
+        except APIError:
+            pass
+
+        if available_models:
+            console.print(f"  Available models: {', '.join(available_models)}")
+
+        model = typer.prompt(
+            f"  Model",
+            default=agent_meta.get("model_requirement", "gpt-4.1-mini"),
+        )
+
+    # --- Data source mode ---
+    data_source_mode = typer.prompt(
+        f"  Data sources",
+        default="synthetic",
+        type=typer.Choice(["synthetic", "configure-later"], case_sensitive=False),
+    )
+
+    # --- Confirmation ---
+    console.print(f"\n  [bold]Deployment summary:[/bold]")
+    console.print(f"    Agent:   {agent_name} ({agent_id})")
+    console.print(f"    Version: {resolved_version}")
+    console.print(f"    Domain:  {domain}")
+    console.print(f"    Model:   {model}")
+    console.print(f"    Data:    {data_source_mode}")
+    console.print()
+
+    if not yes:
+        if not typer.confirm("  Proceed with deployment?", default=True):
+            console.print("  [dim]Cancelled.[/dim]")
+            raise typer.Exit(0)
+
+    # --- Trigger deployment ---
+    console.print(f"\n  [bold]Deploying...[/bold]\n")
 
     try:
         result = gateway_post(f"/catalog/deploy/{agent_id}", {
             "version": version,
             "domain": domain,
+            "model": model,
+            "data_source_mode": data_source_mode,
         })
         deployment_id = result.get("deployment_id")
+        resolved_version = result.get("version", resolved_version)
         console.print(f"  [green]✓[/green] Deployment triggered: {deployment_id}")
         console.print(f"  Polling status...\n")
 
         # Poll until complete or failed
-        for _ in range(120):  # 4 minutes max
+        last_message = ""
+        for _ in range(150):  # 5 minutes max
             _time.sleep(2)
             try:
                 status = gateway_get(f"/catalog/deploy/{agent_id}/status")
-                step = status.get("step", 0)
-                total = status.get("total_steps", 14)
                 state = status.get("status", "unknown")
                 message = status.get("message", "")
 
-                console.print(f"  [{step}/{total}] {state}: {message}", end="\r")
+                if message != last_message:
+                    console.print(f"  {state}: {message}")
+                    last_message = message
 
                 if state in ("deployed", "upgraded"):
-                    console.print(f"\n\n  [green]✓[/green] {message}")
-                    console.print(f"  Agent deployed as draft. Publish with: prox agent publish {agent_id}")
+                    console.print(f"\n  [green]✓[/green] {message}")
+                    console.print(f"\n  Next steps:")
+                    console.print(f"    • View in dashboard: /build/agents/{agent_id}")
+                    console.print(f"    • Publish:  prox agent publish {agent_id}")
                     return
                 elif state == "failed":
-                    console.print(f"\n\n  [red]✗[/red] Deployment failed: {message}")
+                    console.print(f"\n  [red]✗[/red] Deployment failed: {message}")
                     raise typer.Exit(1)
             except APIError:
                 pass
 
-        console.print(f"\n\n  [yellow]⚠[/yellow] Deployment timed out. Check: prox catalog status {agent_id}")
+        console.print(f"\n  [yellow]⚠[/yellow] Deployment timed out. Check: prox catalog status {agent_id}")
 
     except APIError as e:
         console.print(f"  [red]✗[/red] {e.detail}")
