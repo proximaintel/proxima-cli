@@ -248,6 +248,7 @@ def deploy_from_catalog(
     version: str = typer.Option("latest", "--version", "-v", help="Version to deploy"),
     domain: str = typer.Option("", "--domain", "-d", help="Domain assignment (skips prompt)"),
     model: str = typer.Option("", "--model", "-m", help="LLM model (skips prompt)"),
+    data_source: str = typer.Option("", "--data-source", help="synthetic or configure-later (skips prompt)"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt"),
 ):
     """Deploy an agent from catalog to the platform.
@@ -275,7 +276,6 @@ def deploy_from_catalog(
 
     # --- Domain selection ---
     if not domain:
-        # Fetch existing domains from platform
         existing_domains = []
         try:
             domains_res = gateway_get("/build/domains")
@@ -285,15 +285,12 @@ def deploy_from_catalog(
 
         if existing_domains:
             console.print(f"  Existing domains: {', '.join(existing_domains)}")
+        console.print(f"  [dim](New domains will be created automatically)[/dim]")
 
-        domain = typer.prompt(
-            f"  Domain",
-            default=suggested_domain,
-        )
+        domain = typer.prompt(f"  Domain", default=suggested_domain)
 
     # --- Model selection ---
     if not model:
-        # Fetch available models from platform
         available_models = []
         try:
             models_res = gateway_get("/build/models")
@@ -304,17 +301,14 @@ def deploy_from_catalog(
         if available_models:
             console.print(f"  Available models: {', '.join(available_models)}")
 
-        model = typer.prompt(
-            f"  Model",
-            default=agent_meta.get("model_requirement", "gpt-4.1-mini"),
-        )
+        model = typer.prompt(f"  Model", default=agent_meta.get("model_requirement", "gpt-4.1-mini"))
 
     # --- Data source mode ---
-    data_source_mode = typer.prompt(
-        f"  Data sources",
-        default="synthetic",
-        type=typer.Choice(["synthetic", "configure-later"], case_sensitive=False),
-    )
+    if not data_source:
+        data_source = typer.prompt(
+            f"  Data sources (synthetic / configure-later)",
+            default="synthetic",
+        )
 
     # --- Confirmation ---
     console.print(f"\n  [bold]Deployment summary:[/bold]")
@@ -322,7 +316,7 @@ def deploy_from_catalog(
     console.print(f"    Version: {resolved_version}")
     console.print(f"    Domain:  {domain}")
     console.print(f"    Model:   {model}")
-    console.print(f"    Data:    {data_source_mode}")
+    console.print(f"    Data:    {data_source}")
     console.print()
 
     if not yes:
@@ -338,7 +332,7 @@ def deploy_from_catalog(
             "version": version,
             "domain": domain,
             "model": model,
-            "data_source_mode": data_source_mode,
+            "data_source_mode": data_source,
         })
         deployment_id = result.get("deployment_id")
         resolved_version = result.get("version", resolved_version)

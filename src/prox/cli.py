@@ -4,7 +4,7 @@ import typer
 from rich.console import Console
 
 from . import __version__, auth, config
-from .commands import catalog, agent, toolbox, knowledge, secret, model, routine, workflow, governance, platform, ontology, team
+from .commands import catalog, agent, toolbox, knowledge, secret, model, routine, workflow, governance, platform, ontology, team, skill
 
 def version_callback(value: bool):
     if value:
@@ -28,6 +28,7 @@ console = Console()
 app.add_typer(catalog.app, name="catalog")
 app.add_typer(agent.app, name="agent")
 app.add_typer(toolbox.app, name="toolbox")
+app.add_typer(skill.app, name="skill")
 app.add_typer(knowledge.app, name="knowledge")
 app.add_typer(ontology.app, name="ontology")
 app.add_typer(secret.app, name="secret")
