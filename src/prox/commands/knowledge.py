@@ -7,7 +7,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from ..api import gateway_get, gateway_post, gateway_delete, APIError
+from ..api import gateway_get, gateway_post, gateway_put, gateway_delete, APIError
 
 app = typer.Typer(help="Manage knowledge sources and bases.")
 console = Console()
@@ -74,6 +74,43 @@ def test_source(source_id: str = typer.Argument(help="Source ID to test")):
             console.print(f"[green]✓[/green] Connection successful ({data.get('rows', '?')} rows)")
         else:
             console.print(f"[red]✗[/red] {data.get('error', 'Connection failed')}")
+    except APIError as e:
+        console.print(f"[red]Error:[/red] {e.detail}")
+        raise typer.Exit(1)
+
+
+@source_app.command("update")
+def update_source(
+    source_id: str = typer.Argument(help="Source ID to update"),
+    provider: Optional[str] = typer.Option(None, "--provider", help="azure_blob, s3, snowflake, postgresql, etc."),
+    secret: Optional[str] = typer.Option(None, "--secret", help="Secret name for connection string"),
+    container: Optional[str] = typer.Option(None, "--container"),
+    path: Optional[str] = typer.Option(None, "--path"),
+    status: Optional[str] = typer.Option(None, "--status", help="pending, connected, error"),
+):
+    """Update a knowledge source (provider, connection, status)."""
+    payload: dict = {}
+    if provider:
+        payload["provider"] = provider
+    connection: dict = {}
+    if secret:
+        connection["connection_string_env"] = secret
+    if container:
+        connection["container"] = container
+    if path:
+        connection["path"] = path
+    if connection:
+        payload["connection"] = connection
+    if status:
+        payload["status"] = status
+    elif provider:
+        payload["status"] = "connected"
+    if not payload:
+        console.print("[yellow]Nothing to update.[/yellow]")
+        return
+    try:
+        gateway_put(f"/build/knowledge/sources/{source_id}", payload)
+        console.print(f"[green]\u2713[/green] Updated: {source_id}")
     except APIError as e:
         console.print(f"[red]Error:[/red] {e.detail}")
         raise typer.Exit(1)
