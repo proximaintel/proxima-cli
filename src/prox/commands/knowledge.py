@@ -70,10 +70,12 @@ def test_source(source_id: str = typer.Argument(help="Source ID to test")):
     """Test a source connection."""
     try:
         data = gateway_post(f"/build/knowledge/sources/{source_id}/test")
-        if data.get("success"):
-            console.print(f"[green]✓[/green] Connection successful ({data.get('rows', '?')} rows)")
+        if data.get("status") == "connected" or data.get("success"):
+            rows = data.get("row_count_sample", data.get("rows", "?"))
+            console.print(f"[green]✓[/green] Connection successful ({rows} rows)")
         else:
-            console.print(f"[red]✗[/red] {data.get('error', 'Connection failed')}")
+            console.print(f"[red]✗[/red] {data.get('error', data.get('status', 'Connection failed'))}")
+
     except APIError as e:
         console.print(f"[red]Error:[/red] {e.detail}")
         raise typer.Exit(1)
