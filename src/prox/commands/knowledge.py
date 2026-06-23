@@ -191,15 +191,17 @@ def update_base(
     try:
         data = gateway_get(f"/build/knowledge/bases/{base_id}")
         base = data.get("base", data)
-        sources = base.get("sources", [])
+        raw_sources = base.get("sources", [])
+        # Normalize: sources may be strings or objects with 'id' field
+        source_ids = [s["id"] if isinstance(s, dict) else s for s in raw_sources]
         if add_source:
-            if add_source not in sources:
-                sources.append(add_source)
+            if add_source not in source_ids:
+                source_ids.append(add_source)
         if remove_source:
-            sources = [s for s in sources if s != remove_source]
-        payload = {"id": base_id, "name": name or base.get("name", ""), "sources": sources}
+            source_ids = [s for s in source_ids if s != remove_source]
+        payload = {"id": base_id, "name": name or base.get("name", ""), "sources": source_ids}
         gateway_put(f"/build/knowledge/bases/{base_id}", payload)
-        console.print(f"[green]✓[/green] Updated: {base_id} (sources: {sources})")
+        console.print(f"[green]✓[/green] Updated: {base_id} (sources: {source_ids})")
     except APIError as e:
         console.print(f"[red]Error:[/red] {e.detail}")
         raise typer.Exit(1)
