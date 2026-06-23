@@ -178,3 +178,28 @@ def delete_base(base_id: str = typer.Argument(), confirm: bool = typer.Option(Fa
     except APIError as e:
         console.print(f"[red]Error:[/red] {e.detail}")
         raise typer.Exit(1)
+
+
+@base_app.command("update")
+def update_base(
+    base_id: str = typer.Argument(help="Knowledge base ID"),
+    add_source: str = typer.Option(None, "--add-source", help="Add a source ID to this base"),
+    remove_source: str = typer.Option(None, "--remove-source", help="Remove a source ID from this base"),
+    name: str = typer.Option(None, "--name", help="Update base name"),
+):
+    """Update a knowledge base (add/remove sources, rename)."""
+    try:
+        data = gateway_get(f"/build/knowledge/bases/{base_id}")
+        base = data.get("base", data)
+        sources = base.get("sources", [])
+        if add_source:
+            if add_source not in sources:
+                sources.append(add_source)
+        if remove_source:
+            sources = [s for s in sources if s != remove_source]
+        payload = {"id": base_id, "name": name or base.get("name", ""), "sources": sources}
+        gateway_put(f"/build/knowledge/bases/{base_id}", payload)
+        console.print(f"[green]✓[/green] Updated: {base_id} (sources: {sources})")
+    except APIError as e:
+        console.print(f"[red]Error:[/red] {e.detail}")
+        raise typer.Exit(1)
