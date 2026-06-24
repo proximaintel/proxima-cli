@@ -32,7 +32,7 @@ dependencies = [
 prox = "prox.cli:app"
 
 [project.urls]
-Homepage = "https://proximaintel.com/aip"
+Homepage = "https://proximaintel.com/platform"
 Documentation = "https://docs.proximaintel.com/cli"
 Repository = "https://github.com/proximaintel/proxima-cli"
 
