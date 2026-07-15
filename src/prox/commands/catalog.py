@@ -249,15 +249,29 @@ def deploy_from_catalog(
     domain: str = typer.Option("", "--domain", "-d", help="Domain assignment (skips prompt)"),
     model: str = typer.Option("", "--model", "-m", help="LLM model (skips prompt)"),
     data_source: str = typer.Option("", "--data-source", help="synthetic or configure-later (skips prompt)"),
+    config: Optional[Path] = typer.Option(None, "--config", "-c", help="Vertical config overlay YAML (optional)"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt"),
 ):
     """Deploy an agent from catalog to the platform.
 
     Interactive provisioning — prompts for domain, model, and data sources.
     The platform handles container creation, registration, and configuration.
+
+    Use --config to overlay a vertical-specific YAML (e.g. verticals/aerospace-mro.yaml)
+    that appends industry terminology to the agent prompt and overrides the data prefix.
     """
     from ..api import gateway_post, gateway_get, catalog_get, APIError
     import time as _time
+
+    # Load vertical config overlay if provided
+    vertical_overlay = None
+    if config:
+        if not config.exists():
+            console.print(f"[red]Error:[/red] Config file not found: {config}")
+            raise typer.Exit(1)
+        import yaml
+        vertical_overlay = yaml.safe_load(config.read_text())
+        console.print(f"  [dim]Vertical config:[/dim] {vertical_overlay.get('name', config.name)}")
 
     # Fetch agent metadata from catalog
     try:
@@ -317,6 +331,10 @@ def deploy_from_catalog(
     console.print(f"    Domain:  {domain}")
     console.print(f"    Model:   {model}")
     console.print(f"    Data:    {data_source}")
+    if vertical_overlay:
+        console.print(f"    Config:  {vertical_overlay.get('name', 'custom')}")
+        if vertical_overlay.get('blob_prefix'):
+            console.print(f"    Data prefix: {vertical_overlay['blob_prefix']}")
     console.print()
 
     if not yes:
@@ -328,12 +346,15 @@ def deploy_from_catalog(
     console.print(f"\n  [bold]Deploying...[/bold]\n")
 
     try:
-        result = gateway_post(f"/catalog/deploy/{agent_id}", {
+        payload = {
             "version": version,
             "domain": domain,
             "model": model,
             "data_source_mode": data_source,
-        })
+        }
+        if vertical_overlay:
+            payload["vertical_config"] = vertical_overlay
+        result = gateway_post(f"/catalog/deploy/{agent_id}", payload)
         deployment_id = result.get("deployment_id")
         resolved_version = result.get("version", resolved_version)
         console.print(f"  [green]✓[/green] Deployment triggered: {deployment_id}")
