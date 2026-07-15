@@ -122,8 +122,9 @@ def update_agent(
     prompt: Optional[str] = typer.Option(None, "--prompt", help="System prompt"),
     model: Optional[str] = typer.Option(None, "--model", help="Model ID"),
     from_file: Optional[Path] = typer.Option(None, "--from", help="Update from agent.yaml"),
+    publish: bool = typer.Option(False, "--publish", "-p", help="Auto-publish after update"),
 ):
-    """Update an agent's configuration."""
+    """Update an agent's configuration (creates a new draft version)."""
     if from_file:
         if not from_file.exists():
             console.print(f"[red]Error:[/red] File not found: {from_file}")
@@ -140,12 +141,23 @@ def update_agent(
             raise typer.Exit(1)
 
     try:
-        gateway_put(f"/build/agents/{agent_id}", config)
+        data = gateway_put(f"/build/agents/{agent_id}", config)
     except APIError as e:
         console.print(f"[red]Error:[/red] {e.detail}")
         raise typer.Exit(1)
 
-    console.print(f"[green]✓[/green] Agent updated: {agent_id}")
+    version = data.get("version", "?")
+    console.print(f"[green]✓[/green] Draft created: {agent_id} (v{version})")
+
+    if publish or typer.confirm("Publish now?", default=True):
+        try:
+            gateway_post(f"/build/agents/{agent_id}/publish")
+            console.print(f"[green]✓[/green] Published: {agent_id} v{version}")
+        except APIError as e:
+            console.print(f"[red]Error:[/red] Publish failed: {e.detail}")
+            raise typer.Exit(1)
+    else:
+        console.print(f"[dim]Draft saved. Publish with:[/dim] prox agent publish {agent_id}")
 
 
 @app.command("publish")
